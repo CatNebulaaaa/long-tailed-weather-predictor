@@ -1,48 +1,21 @@
-# Swin-UNetMoE 降水预报模型
+# Swin-UNet MoE: Extreme Precipitation Forecasting
 
-本项目实现了一个基于 **Swin Transformer** 与 **混合专家系统 (MoE)** 的降水预报模型。通过解耦降水机制（背景、层状云、对流云），旨在提升极端降水的捕捉能力并抑制背景噪声。
+基于 Swin-UNet 和混合专家系统（Mixture of Experts, MoE）的降水预测模型。该项目专为气象领域的**极端降水预测**设计，通过引入像素级的路由机制和针对不同降水形态（无雨、层状云降水、对流降水）的专属专家网络，旨在解决极端强降水低估和误报（FAR）的问题。
 
-## 1. 模型结构 (Model Structure)
+## 🌟 核心特性 (Key Features)
 
-模型采用 Encoder-Decoder 架构，核心流程如下：
+* **Swin-UNet Backbone**: 采用分层 Swin Transformer 构建的 U-Net 架构，提取强力的全局与局部空间特征。
+* **Global Alignment**: 在 Decoder 中引入 `GlobalAlignBlock`（基于交叉注意力机制），增强时空特征对齐。
+* **多尺度 FPN 路由器 (FPN Router)**: 整合多层特征图生成像素级的路由概率，智能分类“背景”、“层状云”和“强对流”区域。
+* **高分辨率气象专家网络 (Regime-Specific Experts)**:
+  * ☁️ **Background Expert**: 轻量级门控卷积，处理无雨背景。
+  * 🌧️ **Stratiform Expert**: 深度可分离卷积，处理平滑的中小雨量（层状云）。
+  * ⛈️ **Convective Expert**: 借鉴 ASPP 思想，采用多尺度空洞卷积（Dilation=2, 4）与全局池化，极大扩张感受野，专精捕捉极端强对流降水（30mm/50mm+）。
 
-*   **共享 Swin 编码器 (Shared Swin Encoder)**: 
-    *   利用 Swin Transformer 块提取多尺度分层特征。
-*   **双路径机制路由器 (Dual-Path Regime Router)**: 
-    *   **输入**: 同时接收深层语义特征（4x4）与浅层空间特征（32x32）。
-    *   **功能**: 预测每个像素属于三种降水机制（Regime）的概率，生成软门控权重。
-*   **混合专家解码器 (MoE Decoder)**:
-    *   **Expert 0 (背景)**: 静态专家，输出固定零值，专门吸收无雨区噪声。
-    *   **Expert 1 (层状云)**: 动态专家，针对中低强度降水，优化整体 RMSE。
-    *   **Expert 2 (对流云)**: 动态专家，通过 **+1.0 偏置初始化** 引导，专门负责捕捉高强度极端降水。
-*   **背景抑制 (Background Suppressor)**: 
-    *   通过独立的抑制器产生掩码（Mask），进一步清除 Router 在背景区域的误触发。
+## 💡 训练策略 (Training Strategy)
 
----
-
-## 2. 文件结构 (File Structure)
-
-```text
-.
-├── download&&preprocess/   # 数据下载和预处理
-│   ├── preprocess.py       # 将原始 .nc 转换为 Zarr 并生成物理标签
-│   └── convert_to_pt.py    # 将 Zarr 转换为高效加载的 .pt 张量文件
-├── models/                 # 模型核心定义
-│   ├── swin_unet_moe.py    # SwinUNetMoE 主网络架构
-│   └── regime_module.py    # 路由器(Router)、注意力门控及标签生成逻辑
-├── train_script/           # 训练与评估模块
-│   ├── train_moe.py        # 主训练脚本（含专家冻结与偏置初始化逻辑）
-│   └── dataset.py          # PyTorch数据加载器
-└── README.md               # 项目说明文档
-```
-
----
-
-## 3. 训练策略 (Core Strategies)
-
-1.  **专家冻结**: 训练初期冻结解码器参数，强制 Router 先学会如何分配降水机制。
-2.  **偏置注入**: 手动初始化专家偏置，从物理上定义专家的“职责”，解决冷启动问题。
-3.  **温度锐化**: Router 输出使用 T=0.5 的 Softmax，使降水落区边界更加分明。
-4.  **只放了主训练脚本**：剩下的微调的脚本太杂乱了就没放上来
-
----
+本模型设计了专门的损失函数系统以平衡极端值与误报率：
+* **专家各司其职 (Expert Loss)**: 背景与层状云使用 Huber Loss；对流区采用**不对称 MSE Loss**，对低估（Underestimation）施加 10 倍重罚。
+* **听从指挥 (Router Loss)**: 加权交叉熵，降水强度越大的像素分配越高的权重，确保极值区被正确路由给对流专家。
+* **交叉抑制 (Silence Loss)**: 强迫对流与层状云专家在背景区域输出 0，大幅压制误报率（False Alarm Rate）。
+* **差分学习率**: 冻结/慢速更新基础特征提取器（Encoder/Router），高学习率激活新的对流专家网络。
