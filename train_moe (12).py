@@ -26,14 +26,14 @@ class FinetuneConfig:
     weight_final = 5.0      
     
     # 3. 专家权重：主导训练
-    weight_special = 5.0   
+    weight_special = 0.0   
     
     # 4. 静默权重：【新增】专门用来压制误报
     # 如果背景区 Expert 1/2 乱动，狠罚！
-    weight_silence = 5.0   
+    weight_silence = 0.0   
     
     # 极值特训参数
-    penalty_under = 10.0    # 低估惩罚倍数 (狠一点)
+    penalty_under = 1.0    # 低估惩罚倍数 (狠一点)
     
     # 路径配置 (请确保路径正确)
     data_dir = '/root/autodl-tmp/gpm_pt_dataset'
